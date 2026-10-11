@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prueba de CORS - Biblioteca API</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    h1 { font-size: 1.4rem; }
+    label { display: block; margin-top: .6rem; font-size: .9rem; }
+    input { width: 100%; padding: .4rem; box-sizing: border-box; }
+    button { margin-top: 1rem; padding: .6rem 1rem; font-size: 1rem; cursor: pointer; }
+    .paso { padding: .5rem .7rem; margin: .4rem 0; border-radius: 6px; font-family: monospace; font-size: .85rem; white-space: pre-wrap; }
+    .ok { background: #e6f6ea; border-left: 4px solid #2e9e4f; }
+    .err { background: #fdeaea; border-left: 4px solid #c43c3c; }
+    .info { background: #eef2f8; border-left: 4px solid #4a6fa5; }
+  </style>
+</head>
+<body>
+  <h1>Prueba de CORS desde el navegador</h1>
+  <p>Esta pagina corre en <strong id="origen"></strong> y llama a la API con el header <code>Authorization</code>.
+     Si los 4 pasos salen en verde, el criterio de CORS está cumplido.</p>
+
+  <label>URL de la API <input id="api" value="http://localhost:4000/api" /></label>
+  <label>Email <input id="email" value="cors@test.com" /></label>
+  <label>Password <input id="password" value="123456" /></label>
+  <button id="probar">Probar CORS</button>
+
+  <div id="salida"></div>
+
+  <script>
+    document.getElementById('origen').textContent = location.origin;
+    const salida = document.getElementById('salida');
+
+    const log = (texto, tipo) => {
+      const div = document.createElement('div');
+      div.className = 'paso ' + tipo;
+      div.textContent = texto;
+      salida.appendChild(div);
+    };
+
+    const llamar = async (titulo, url, opciones) => {
+      try {
+        const res = await fetch(url, opciones);
+        const data = await res.json();
+        log(`${titulo} -> ${res.status}\n${JSON.stringify(data, null, 2)}`, res.ok ? 'ok' : 'info');
+        return { res, data };
+      } catch (error) {
+        // Un error de CORS llega aquí como "TypeError: Failed to fetch"
+        log(`${titulo} -> BLOQUEADO (posible error de CORS)\n${error}\nRevisa la consola (F12) y CLIENT_URL en el .env`, 'err');
+        throw error;
+      }
+    };
+
+    document.getElementById('probar').addEventListener('click', async () => {
+      salida.innerHTML = '';
+      const api = document.getElementById('api').value.replace(/\/$/, '');
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const json = { 'Content-Type': 'application/json' };
+
+      try {
+        // 1. Registro (201, o 409 si ya existía: ambos prueban que CORS deja pasar)
+        await llamar('1. POST /auth/register', `${api}/auth/register`, {
+          method: 'POST', headers: json,
+          body: JSON.stringify({ nombre: 'Prueba CORS', email, password }),
+        });
+
+        // 2. Login
+        const { data } = await llamar('2. POST /auth/login', `${api}/auth/login`, {
+          method: 'POST', headers: json, body: JSON.stringify({ email, password }),
+        });
+        if (!data.token) return log('No se recibió token; revisa email/password.', 'err');
+
+        // 3. Ruta protegida con header Authorization (dispara preflight OPTIONS)
+        await llamar('3. GET /auth/me (con Authorization)', `${api}/auth/me`, {
+          headers: { Authorization: `Bearer ${data.token}` },
+        });
+
+        // 4. Listar libros con Authorization
+        await llamar('4. GET /books (con Authorization)', `${api}/books`, {
+          headers: { Authorization: `Bearer ${data.token}` },
+        });
+
+        log('Listo: el navegador pudo llamar a la API con Authorization sin error de CORS.', 'ok');
+      } catch (_) { /* ya se mostró el error */ }
+    });
+  </script>
+</body>
+</html>
